@@ -186,13 +186,13 @@ const AdminUserManager = () => {
   };
 
   // Download a document
-  const handleDownloadDocument = (document: DocumentData) => {
-    const link = document.createElement('a');
-    link.href = document.dataUrl;
-    link.download = document.fileName;
-    document.body.appendChild(link);
+  const handleDownloadDocument = (docData: DocumentData) => {
+    const link = window.document.createElement('a');
+    link.href = docData.dataUrl;
+    link.download = docData.fileName;
+    window.document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    window.document.body.removeChild(link);
   };
 
   // Delete a document
