@@ -13,7 +13,27 @@ export interface UserProfile {
   zipCode: string;
   city: string;
   isSubmitted?: boolean;
+  status?: ProfileStatus;
+  projectStatus?: ProjectStatus;
 }
+
+// Profile status
+export type ProfileStatus = 
+  | "incomplete" 
+  | "submitted" 
+  | "reviewing" 
+  | "approved" 
+  | "rejected";
+
+// Project status
+export type ProjectStatus = 
+  | "contact" 
+  | "preparation" 
+  | "registration" 
+  | "verification" 
+  | "betting" 
+  | "payout" 
+  | "completed";
 
 // Profile data with documents
 export interface ProfileWithDocuments extends UserProfile {
@@ -76,7 +96,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 // Update profile submission status
-export const updateProfileStatus = async (userId: string, isSubmitted: boolean): Promise<boolean> => {
+export const updateProfileStatus = async (userId: string, status: ProfileStatus): Promise<boolean> => {
   try {
     const profiles = getAllProfiles();
     
@@ -86,7 +106,9 @@ export const updateProfileStatus = async (userId: string, isSubmitted: boolean):
     
     profiles[userId] = {
       ...profiles[userId],
-      isSubmitted,
+      status,
+      // If status is rejected, allow editing again
+      isSubmitted: status !== "rejected"
     };
     
     saveAllProfiles(profiles);
@@ -94,6 +116,29 @@ export const updateProfileStatus = async (userId: string, isSubmitted: boolean):
     return true;
   } catch (error) {
     console.error("Update profile status error:", error);
+    return false;
+  }
+};
+
+// Update project status
+export const updateProjectStatus = async (userId: string, projectStatus: ProjectStatus): Promise<boolean> => {
+  try {
+    const profiles = getAllProfiles();
+    
+    if (!profiles[userId]) {
+      return false;
+    }
+    
+    profiles[userId] = {
+      ...profiles[userId],
+      projectStatus
+    };
+    
+    saveAllProfiles(profiles);
+    
+    return true;
+  } catch (error) {
+    console.error("Update project status error:", error);
     return false;
   }
 };
@@ -121,21 +166,20 @@ export const saveDocuments = async (
 ): Promise<boolean> => {
   try {
     // In a real application, these would be stored in a database or file storage
-    // For this example, we'll simulate by storing file names
-    const idDocNames = idDocs.map(doc => doc.name);
-    const cardDocNames = cardDocs.map(doc => doc.name);
-    const bankDocNames = bankDocs.map(doc => doc.name);
+    const idDocPromises = idDocs.map(doc => uploadDocument(userId, doc));
+    const cardDocPromises = cardDocs.map(doc => uploadDocument(userId, doc));
+    const bankDocPromises = bankDocs.map(doc => uploadDocument(userId, doc));
     
-    const profiles = getAllProfiles();
-    if (!profiles[userId]) {
-      return false;
-    }
+    const [idDocUrls, cardDocUrls, bankDocUrls] = await Promise.all([
+      Promise.all(idDocPromises),
+      Promise.all(cardDocPromises),
+      Promise.all(bankDocPromises)
+    ]);
     
-    // In a real app, we would store URLs to the documents
     localStorage.setItem(`betclever_documents_${userId}`, JSON.stringify({
-      idDocuments: idDocNames,
-      cardDocuments: cardDocNames,
-      bankDocuments: bankDocNames,
+      idDocuments: idDocUrls,
+      cardDocuments: cardDocUrls,
+      bankDocuments: bankDocUrls,
     }));
     
     return true;

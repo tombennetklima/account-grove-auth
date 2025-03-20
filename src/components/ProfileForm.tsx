@@ -4,11 +4,17 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { format } from "date-fns";
-import { CalendarIcon, Upload } from "lucide-react";
+import { CalendarIcon, Upload, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
 import { getCurrentUser } from "@/services/authService";
-import { saveUserProfile, getUserProfile } from "@/services/profileService";
+import { 
+  saveUserProfile, 
+  getUserProfile, 
+  saveDocuments, 
+  ProfileStatus, 
+  UserProfile 
+} from "@/services/profileService";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +36,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 const phoneRegex = /^\+49\s?[1-9][0-9]{1,14}$/;
 
@@ -47,13 +54,43 @@ const profileFormSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
+const statusConfig = {
+  incomplete: {
+    label: "Nicht vollständig",
+    color: "bg-yellow-500/10 text-yellow-500",
+    icon: AlertCircle
+  },
+  submitted: {
+    label: "Eingereicht",
+    color: "bg-blue-500/10 text-blue-500",
+    icon: Clock
+  },
+  reviewing: {
+    label: "Wird überprüft",
+    color: "bg-purple-500/10 text-purple-500",
+    icon: Clock
+  },
+  approved: {
+    label: "Bestätigt",
+    color: "bg-green-500/10 text-green-500",
+    icon: CheckCircle
+  },
+  rejected: {
+    label: "Abgelehnt",
+    color: "bg-red-500/10 text-red-500",
+    icon: AlertCircle
+  }
+};
+
 const ProfileForm = () => {
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [profileStatus, setProfileStatus] = useState<ProfileStatus>("incomplete");
   const [idDocuments, setIdDocuments] = useState<File[]>([]);
   const [cardDocuments, setCardDocuments] = useState<File[]>([]);
   const [bankDocuments, setBankDocuments] = useState<File[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get current user
   useEffect(() => {
@@ -71,9 +108,10 @@ const ProfileForm = () => {
         if (profile) {
           form.reset({
             ...profile,
-            birthDate: profile.birthDate ? new Date(profile.birthDate) : undefined,
+            birthDate: profile.birthDate ? new Date(profile.birthDate) : new Date(),
           });
           setIsSubmitted(profile.isSubmitted || false);
+          setProfileStatus(profile.status || "incomplete");
         }
       }
     };
@@ -121,6 +159,7 @@ const ProfileForm = () => {
 
   const onSubmit = async (data: ProfileFormValues) => {
     if (!userId) return;
+    setIsLoading(true);
     
     if (idDocuments.length === 0 || cardDocuments.length === 0 || bankDocuments.length === 0) {
       toast({
@@ -128,40 +167,88 @@ const ProfileForm = () => {
         description: "Bitte laden Sie alle erforderlichen Dokumente hoch.",
         variant: "destructive",
       });
+      setIsLoading(false);
       return;
     }
     
-    // Save profile data
-    const success = await saveUserProfile(userId, {
-      ...data,
-      isSubmitted: true,
-    });
-    
-    if (success) {
-      setIsSubmitted(true);
+    try {
+      // Save documents first
+      const docsUploaded = await saveDocuments(userId, idDocuments, cardDocuments, bankDocuments);
+      
+      if (!docsUploaded) {
+        toast({
+          title: "Fehler beim Hochladen",
+          description: "Ihre Dokumente konnten nicht gespeichert werden.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+      
+      // Save profile data with updated status
+      const updatedProfile: UserProfile = {
+        ...data,
+        isSubmitted: true,
+        status: "submitted"
+      };
+      
+      const success = await saveUserProfile(userId, updatedProfile);
+      
+      if (success) {
+        setIsSubmitted(true);
+        setProfileStatus("submitted");
+        toast({
+          title: "Profil gespeichert",
+          description: "Ihre Daten wurden erfolgreich gespeichert und zur Überprüfung eingereicht.",
+        });
+      }
+    } catch (error) {
+      console.error("Submit error:", error);
       toast({
-        title: "Profil gespeichert",
-        description: "Ihre Daten wurden erfolgreich gespeichert und zur Überprüfung eingereicht.",
+        title: "Fehler beim Speichern",
+        description: "Ihre Daten konnten nicht gespeichert werden. Bitte versuchen Sie es später erneut.",
+        variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const StatusBadge = ({ status }: { status: ProfileStatus }) => {
+    const config = statusConfig[status];
+    const Icon = config.icon;
+    
+    return (
+      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${config.color} animate-fade-in`}>
+        <Icon className="h-4 w-4" />
+        {config.label}
+      </div>
+    );
+  };
+
+  const isEditable = !isSubmitted || profileStatus === "rejected";
+
   return (
-    <div className="space-y-6">
-      <Alert>
-        <AlertTitle>Wichtige Information</AlertTitle>
-        <AlertDescription>
+    <div className="space-y-6 animate-fade-in">
+      <Alert className="glass-morphism">
+        <AlertTitle className="font-medium">Wichtige Information</AlertTitle>
+        <AlertDescription className="text-sm">
           Diese Daten werden für MatchedBetting-Zwecke verwendet. Bitte lesen Sie alle Informationen sorgfältig durch, bevor Sie Ihre Daten hochladen. Laden Sie Ihre Dokumente erst hoch, nachdem Sie Ihr Bankkonto eröffnet haben, damit wir direkt starten können. Wir werden Sie kontaktieren, um uns in Ihr Bankkonto einzuloggen, welches danach wieder geschlossen wird.
         </AlertDescription>
       </Alert>
 
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-medium">Persönliche Daten</h2>
+        <StatusBadge status={profileStatus} />
+      </div>
+
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Persönliche Informationen</CardTitle>
+          <Card className="glass-morphism overflow-hidden">
+            <CardHeader className="border-b pb-3">
+              <CardTitle className="text-lg font-medium">Persönliche Informationen</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 pt-6">
               <div className="grid gap-6 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -170,7 +257,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Vorname</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -184,7 +271,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Nachname</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -200,7 +287,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>E-Mail</FormLabel>
                       <FormControl>
-                        <Input {...field} type="email" disabled={isSubmitted} />
+                        <Input {...field} type="email" disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -214,7 +301,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Telefonnummer</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="+49 " disabled={isSubmitted} />
+                        <Input {...field} placeholder="+49 " disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -234,10 +321,10 @@ const ProfileForm = () => {
                           <Button
                             variant={"outline"}
                             className={cn(
-                              "w-full pl-3 text-left font-normal",
+                              "w-full pl-3 text-left font-normal bg-white/50",
                               !field.value && "text-muted-foreground"
                             )}
-                            disabled={isSubmitted}
+                            disabled={!isEditable}
                           >
                             {field.value ? (
                               format(field.value, "dd.MM.yyyy")
@@ -274,7 +361,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Straße</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -288,7 +375,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Hausnummer</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -304,7 +391,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Postleitzahl</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -318,7 +405,7 @@ const ProfileForm = () => {
                     <FormItem>
                       <FormLabel>Ort</FormLabel>
                       <FormControl>
-                        <Input {...field} disabled={isSubmitted} />
+                        <Input {...field} disabled={!isEditable} className="bg-white/50" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -328,11 +415,11 @@ const ProfileForm = () => {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Dokumentenupload</CardTitle>
+          <Card className="glass-morphism overflow-hidden">
+            <CardHeader className="border-b pb-3">
+              <CardTitle className="text-lg font-medium">Dokumentenupload</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 pt-6">
               <div className="space-y-3">
                 <Label htmlFor="idDocuments">Ausweis (Vorder- und Rückseite + Foto mit Ausweis in der Hand)</Label>
                 <div className="flex items-center gap-2">
@@ -342,8 +429,8 @@ const ProfileForm = () => {
                     multiple
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => handleFileUpload(e, setIdDocuments)}
-                    disabled={isSubmitted}
-                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                    disabled={!isEditable}
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 bg-white/50"
                   />
                   <span className="text-sm text-muted-foreground">
                     {idDocuments.length} Dateien ausgewählt
@@ -361,8 +448,8 @@ const ProfileForm = () => {
                     multiple
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => handleFileUpload(e, setCardDocuments)}
-                    disabled={isSubmitted}
-                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                    disabled={!isEditable}
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 bg-white/50"
                   />
                   <span className="text-sm text-muted-foreground">
                     {cardDocuments.length} Dateien ausgewählt
@@ -379,8 +466,8 @@ const ProfileForm = () => {
                     multiple
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => handleFileUpload(e, setBankDocuments)}
-                    disabled={isSubmitted}
-                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                    disabled={!isEditable}
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 bg-white/50"
                   />
                   <span className="text-sm text-muted-foreground">
                     {bankDocuments.length} Dateien ausgewählt
@@ -390,8 +477,20 @@ const ProfileForm = () => {
             </CardContent>
           </Card>
 
-          <Button type="submit" className="w-full" disabled={isSubmitted}>
-            {isSubmitted ? "Daten wurden eingereicht" : "Daten bestätigen und einreichen"}
+          <Button 
+            type="submit" 
+            className="w-full transition-all hover:scale-[1.01] duration-200" 
+            disabled={!isEditable || isLoading}
+          >
+            {isLoading ? (
+              <>
+                <span className="loading-spinner mr-2 h-4 w-4" /> Wird gespeichert...
+              </>
+            ) : isSubmitted ? (
+              "Daten wurden eingereicht"
+            ) : (
+              "Daten bestätigen und einreichen"
+            )}
           </Button>
         </form>
       </Form>
