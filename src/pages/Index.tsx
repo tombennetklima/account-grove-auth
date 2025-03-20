@@ -1,12 +1,27 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+
+import LoginForm from "@/components/LoginForm";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { getCurrentUser } from "@/services/authService";
 
 const Index = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const user = getCurrentUser();
+    if (user) {
+      navigate("/dashboard");
+    }
+  }, [navigate]);
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">Start building your amazing project here!</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4">
+      <div className="text-center mb-8 animate-fade-in">
+        <h1 className="text-4xl font-bold tracking-tight mb-2">Betclever.de</h1>
+        <p className="text-muted-foreground">Melden Sie sich an oder erstellen Sie einen Account</p>
       </div>
+      <LoginForm />
     </div>
   );
 };
