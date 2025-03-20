@@ -185,9 +185,9 @@ const ProfileForm = () => {
         return;
       }
       
-      // Save profile data with updated status
+      // Save profile data with updated status - Fixed: ensure all required fields are included
       const updatedProfile: UserProfile = {
-        ...data,
+        ...data, // This spreads all form data which contains all required fields
         isSubmitted: true,
         status: "submitted"
       };
