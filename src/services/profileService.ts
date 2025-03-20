@@ -17,6 +17,22 @@ export interface UserProfile {
   projectStatus?: ProjectStatus;
 }
 
+// Document data structure
+export interface DocumentData {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  uploadDate: string;
+  dataUrl: string;
+}
+
+// Document collection
+export interface UserDocuments {
+  idDocuments: DocumentData[];
+  cardDocuments: DocumentData[];
+  bankDocuments: DocumentData[];
+}
+
 // Profile status
 export type ProfileStatus = 
   | "incomplete" 
@@ -37,13 +53,12 @@ export type ProjectStatus =
 
 // Profile data with documents
 export interface ProfileWithDocuments extends UserProfile {
-  idDocuments: string[];
-  cardDocuments: string[];
-  bankDocuments: string[];
+  documents: UserDocuments;
 }
 
 // Key for storing profiles in localStorage
 const PROFILES_KEY = 'betclever_profiles';
+const DOCUMENTS_KEY = 'betclever_documents';
 
 // Get all profiles from localStorage
 export const getAllProfiles = (): Record<string, UserProfile> => {
@@ -54,6 +69,17 @@ export const getAllProfiles = (): Record<string, UserProfile> => {
 // Save all profiles to localStorage
 export const saveAllProfiles = (profiles: Record<string, UserProfile>) => {
   localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+};
+
+// Get all documents from localStorage
+export const getAllDocuments = (): Record<string, UserDocuments> => {
+  const documentsData = localStorage.getItem(DOCUMENTS_KEY);
+  return documentsData ? JSON.parse(documentsData) : {};
+};
+
+// Save all documents to localStorage
+export const saveAllDocuments = (documents: Record<string, UserDocuments>) => {
+  localStorage.setItem(DOCUMENTS_KEY, JSON.stringify(documents));
 };
 
 // Save user profile
@@ -143,21 +169,25 @@ export const updateProjectStatus = async (userId: string, projectStatus: Project
   }
 };
 
-// Upload document (simulated)
-export const uploadDocument = async (userId: string, file: File): Promise<string> => {
-  // In a real application, this would upload to a server/storage
-  // For now, we'll simulate by converting to a data URL
-  return new Promise((resolve) => {
+// Process file into document data
+const processFileToDocumentData = async (file: File): Promise<DocumentData> => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      // In a real app, this would return a URL to the uploaded file
-      resolve(reader.result as string);
+      resolve({
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        uploadDate: new Date().toISOString(),
+        dataUrl: reader.result as string
+      });
     };
+    reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 };
 
-// Save documents (simulated for localStorage)
+// Save documents with proper metadata
 export const saveDocuments = async (
   userId: string,
   idDocs: File[],
@@ -165,22 +195,29 @@ export const saveDocuments = async (
   bankDocs: File[]
 ): Promise<boolean> => {
   try {
-    // In a real application, these would be stored in a database or file storage
-    const idDocPromises = idDocs.map(doc => uploadDocument(userId, doc));
-    const cardDocPromises = cardDocs.map(doc => uploadDocument(userId, doc));
-    const bankDocPromises = bankDocs.map(doc => uploadDocument(userId, doc));
+    // Create document data with metadata for each file
+    const idDocPromises = idDocs.map(doc => processFileToDocumentData(doc));
+    const cardDocPromises = cardDocs.map(doc => processFileToDocumentData(doc));
+    const bankDocPromises = bankDocs.map(doc => processFileToDocumentData(doc));
     
-    const [idDocUrls, cardDocUrls, bankDocUrls] = await Promise.all([
+    const [idDocData, cardDocData, bankDocData] = await Promise.all([
       Promise.all(idDocPromises),
       Promise.all(cardDocPromises),
       Promise.all(bankDocPromises)
     ]);
     
-    localStorage.setItem(`betclever_documents_${userId}`, JSON.stringify({
-      idDocuments: idDocUrls,
-      cardDocuments: cardDocUrls,
-      bankDocuments: bankDocUrls,
-    }));
+    // Get existing documents or create empty collection
+    const allDocuments = getAllDocuments();
+    
+    // Update documents for this user
+    allDocuments[userId] = {
+      idDocuments: idDocData,
+      cardDocuments: cardDocData,
+      bankDocuments: bankDocData
+    };
+    
+    // Save to localStorage
+    saveAllDocuments(allDocuments);
     
     return true;
   } catch (error) {
@@ -189,10 +226,39 @@ export const saveDocuments = async (
   }
 };
 
-// Get documents for a user (simulated)
-export const getUserDocuments = (userId: string) => {
-  const docsData = localStorage.getItem(`betclever_documents_${userId}`);
-  if (!docsData) return null;
-  
-  return JSON.parse(docsData);
+// Get documents for a user
+export const getUserDocuments = (userId: string): UserDocuments | null => {
+  try {
+    const allDocuments = getAllDocuments();
+    return allDocuments[userId] || null;
+  } catch (error) {
+    console.error("Get documents error:", error);
+    return null;
+  }
+};
+
+// Delete a document from a specific collection
+export const deleteDocument = async (
+  userId: string, 
+  documentType: 'idDocuments' | 'cardDocuments' | 'bankDocuments',
+  documentIndex: number
+): Promise<boolean> => {
+  try {
+    const allDocuments = getAllDocuments();
+    
+    if (!allDocuments[userId] || !allDocuments[userId][documentType]) {
+      return false;
+    }
+    
+    // Remove the document at the specified index
+    allDocuments[userId][documentType].splice(documentIndex, 1);
+    
+    // Save updated documents
+    saveAllDocuments(allDocuments);
+    
+    return true;
+  } catch (error) {
+    console.error("Delete document error:", error);
+    return false;
+  }
 };

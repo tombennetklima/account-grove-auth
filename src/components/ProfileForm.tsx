@@ -13,7 +13,8 @@ import {
   getUserProfile, 
   saveDocuments, 
   ProfileStatus, 
-  UserProfile 
+  UserProfile,
+  getUserDocuments
 } from "@/services/profileService";
 
 import { Button } from "@/components/ui/button";

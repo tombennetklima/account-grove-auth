@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { getUsersFromStorage, UserDetails, updateUserPassword, deleteUser } from "@/services/authService";
 import { 
@@ -8,7 +7,10 @@ import {
   updateProjectStatus,
   getUserDocuments,
   ProfileStatus,
-  ProjectStatus
+  ProjectStatus,
+  DocumentData,
+  UserDocuments,
+  deleteDocument
 } from "@/services/profileService";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Eye, 
   EyeOff, 
@@ -41,7 +49,10 @@ import {
   Phone,
   Download,
   AlertCircle,
-  Clock
+  Clock,
+  Image,
+  FileImage,
+  File
 } from "lucide-react";
 
 const AdminUserManager = () => {
@@ -50,8 +61,9 @@ const AdminUserManager = () => {
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [profiles, setProfiles] = useState<Record<string, any>>({});
-  const [documents, setDocuments] = useState<Record<string, any>>({});
+  const [documents, setDocuments] = useState<Record<string, UserDocuments>>({});
   const [activeTab, setActiveTab] = useState<"users" | "verification">("users");
+  const [previewDocument, setPreviewDocument] = useState<{ url: string; type: string; name: string } | null>(null);
 
   // Load users from storage
   useEffect(() => {
@@ -64,7 +76,7 @@ const AdminUserManager = () => {
       setProfiles(profilesData);
       
       // Load documents for each user
-      const docs: Record<string, any> = {};
+      const docs: Record<string, UserDocuments> = {};
       usersData.forEach(user => {
         const userDocs = getUserDocuments(user.id);
         if (userDocs) {
@@ -159,14 +171,162 @@ const AdminUserManager = () => {
     }
   };
 
+  // Preview a document
+  const handlePreviewDocument = (document: DocumentData) => {
+    setPreviewDocument({
+      url: document.dataUrl,
+      type: document.fileType,
+      name: document.fileName
+    });
+  };
+
+  // Close document preview
+  const closePreview = () => {
+    setPreviewDocument(null);
+  };
+
   // Download a document
-  const handleDownloadDocument = (dataUrl: string, fileName: string) => {
+  const handleDownloadDocument = (document: DocumentData) => {
     const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = fileName;
+    link.href = document.dataUrl;
+    link.download = document.fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Delete a document
+  const handleDeleteDocument = async (
+    userId: string, 
+    documentType: 'idDocuments' | 'cardDocuments' | 'bankDocuments',
+    documentIndex: number
+  ) => {
+    if (window.confirm("Möchten Sie dieses Dokument wirklich löschen?")) {
+      const success = await deleteDocument(userId, documentType, documentIndex);
+      
+      if (success) {
+        // Refresh documents
+        const userDocs = getUserDocuments(userId);
+        if (userDocs) {
+          setDocuments(prev => ({
+            ...prev,
+            [userId]: userDocs
+          }));
+        }
+        
+        toast({
+          title: "Dokument gelöscht",
+          description: "Das Dokument wurde erfolgreich gelöscht.",
+        });
+      } else {
+        toast({
+          title: "Fehler beim Löschen",
+          description: "Das Dokument konnte nicht gelöscht werden.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  // Get file icon based on file type
+  const getFileIcon = (fileType: string) => {
+    if (fileType.startsWith('image/')) {
+      return <FileImage className="h-4 w-4" />;
+    } else if (fileType === 'application/pdf') {
+      return <File className="h-4 w-4" />;
+    } else {
+      return <FileText className="h-4 w-4" />;
+    }
+  };
+
+  // Format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Get document cards
+  const getDocumentCards = (userId: string) => {
+    if (!documents[userId]) return null;
+    
+    const renderDocumentList = (
+      docs: DocumentData[], 
+      title: string, 
+      type: 'idDocuments' | 'cardDocuments' | 'bankDocuments'
+    ) => {
+      if (!docs.length) return null;
+      
+      return (
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium">{title}</h4>
+          <div className="grid gap-2">
+            {docs.map((doc, idx) => (
+              <Card key={idx} className="bg-white/70 p-0 overflow-hidden">
+                <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 p-3">
+                  <div className="flex items-center justify-center bg-primary/10 w-10 h-10 rounded">
+                    {getFileIcon(doc.fileType)}
+                  </div>
+                  
+                  <div className="overflow-hidden">
+                    <p className="text-sm font-medium truncate">{doc.fileName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(doc.fileSize)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
+                    </p>
+                  </div>
+                  
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8" 
+                      onClick={() => handlePreviewDocument(doc)}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8" 
+                      onClick={() => handleDownloadDocument(doc)}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-destructive" 
+                      onClick={() => handleDeleteDocument(userId, type, idx)}
+                    >
+                      <Trash className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    };
+    
+    return (
+      <div className="space-y-4 mt-4">
+        <Separator />
+        <h3 className="font-medium">Dokumente</h3>
+        
+        {renderDocumentList(documents[userId].idDocuments, "Ausweisdokumente", "idDocuments")}
+        {renderDocumentList(documents[userId].cardDocuments, "Zahlungskarten", "cardDocuments")}
+        {renderDocumentList(documents[userId].bankDocuments, "Bankdokumente", "bankDocuments")}
+        
+        {(!documents[userId].idDocuments.length && 
+          !documents[userId].cardDocuments.length && 
+          !documents[userId].bankDocuments.length) && (
+          <p className="text-sm text-muted-foreground py-2">Keine Dokumente vorhanden.</p>
+        )}
+      </div>
+    );
   };
 
   // Get status badge component
@@ -330,62 +490,7 @@ const AdminUserManager = () => {
                         </>
                       )}
                       
-                      {documents[user.id] && (
-                        <div className="space-y-3 pt-2">
-                          <Label>Dokumente herunterladen</Label>
-                          
-                          {documents[user.id].idDocuments?.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {documents[user.id].idDocuments.map((doc: string, idx: number) => (
-                                <Button 
-                                  key={idx} 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleDownloadDocument(doc, `ausweis-${idx+1}.jpg`)}
-                                  className="flex items-center gap-1 bg-white/70"
-                                >
-                                  <Download className="h-3 w-3" />
-                                  Ausweis {idx+1}
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {documents[user.id].cardDocuments?.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {documents[user.id].cardDocuments.map((doc: string, idx: number) => (
-                                <Button 
-                                  key={idx} 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleDownloadDocument(doc, `karte-${idx+1}.jpg`)}
-                                  className="flex items-center gap-1 bg-white/70"
-                                >
-                                  <Download className="h-3 w-3" />
-                                  Karte {idx+1}
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {documents[user.id].bankDocuments?.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {documents[user.id].bankDocuments.map((doc: string, idx: number) => (
-                                <Button 
-                                  key={idx} 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => handleDownloadDocument(doc, `bank-${idx+1}.jpg`)}
-                                  className="flex items-center gap-1 bg-white/70"
-                                >
-                                  <Download className="h-3 w-3" />
-                                  Bank {idx+1}
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {documents[user.id] && getDocumentCards(user.id)}
                       
                       {!user.isAdmin && (
                         <div className="pt-2">
@@ -498,48 +603,69 @@ const AdminUserManager = () => {
                       </div>
                       
                       {documents[user.id] && (
-                        <div className="space-y-2 pt-1">
+                        <div className="space-y-2 pt-1 mt-2">
+                          <Separator className="mb-2" />
                           <p className="text-sm font-medium">Dokumente:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {documents[user.id].idDocuments?.map((doc: string, idx: number) => (
-                              <Button 
-                                key={idx} 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => handleDownloadDocument(doc, `ausweis-${idx+1}.jpg`)}
-                                className="flex items-center gap-1 bg-white/70 text-xs"
-                              >
-                                <Download className="h-3 w-3" />
-                                Ausweis {idx+1}
-                              </Button>
-                            ))}
-                            
-                            {documents[user.id].cardDocuments?.map((doc: string, idx: number) => (
-                              <Button 
-                                key={idx} 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => handleDownloadDocument(doc, `karte-${idx+1}.jpg`)}
-                                className="flex items-center gap-1 bg-white/70 text-xs"
-                              >
-                                <Download className="h-3 w-3" />
-                                Karte {idx+1}
-                              </Button>
-                            ))}
-                            
-                            {documents[user.id].bankDocuments?.map((doc: string, idx: number) => (
-                              <Button 
-                                key={idx} 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => handleDownloadDocument(doc, `bank-${idx+1}.jpg`)}
-                                className="flex items-center gap-1 bg-white/70 text-xs"
-                              >
-                                <Download className="h-3 w-3" />
-                                Bank {idx+1}
-                              </Button>
-                            ))}
-                          </div>
+                          
+                          {documents[user.id].idDocuments.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">Ausweisdokumente:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {documents[user.id].idDocuments.map((doc, idx) => (
+                                  <Button 
+                                    key={idx} 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handlePreviewDocument(doc)}
+                                    className="flex items-center gap-1 bg-white/70 text-xs"
+                                  >
+                                    {getFileIcon(doc.fileType)}
+                                    <span className="max-w-[100px] truncate">{doc.fileName}</span>
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {documents[user.id].cardDocuments.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">Zahlungskarten:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {documents[user.id].cardDocuments.map((doc, idx) => (
+                                  <Button 
+                                    key={idx} 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handlePreviewDocument(doc)}
+                                    className="flex items-center gap-1 bg-white/70 text-xs"
+                                  >
+                                    {getFileIcon(doc.fileType)}
+                                    <span className="max-w-[100px] truncate">{doc.fileName}</span>
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {documents[user.id].bankDocuments.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-muted-foreground">Bankdokumente:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {documents[user.id].bankDocuments.map((doc, idx) => (
+                                  <Button 
+                                    key={idx} 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => handlePreviewDocument(doc)}
+                                    className="flex items-center gap-1 bg-white/70 text-xs"
+                                  >
+                                    {getFileIcon(doc.fileType)}
+                                    <span className="max-w-[100px] truncate">{doc.fileName}</span>
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </CardContent>
@@ -581,6 +707,74 @@ const AdminUserManager = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!previewDocument} onOpenChange={() => closePreview()}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {previewDocument && getFileIcon(previewDocument.type)}
+              <span className="truncate">{previewDocument?.name}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 max-h-[70vh] overflow-auto bg-gray-50 rounded-md flex items-center justify-center">
+            {previewDocument && (
+              previewDocument.type.startsWith('image/') ? (
+                <img 
+                  src={previewDocument.url} 
+                  alt={previewDocument.name} 
+                  className="max-w-full"
+                />
+              ) : previewDocument.type === 'application/pdf' ? (
+                <iframe 
+                  src={previewDocument.url} 
+                  title={previewDocument.name}
+                  className="w-full h-[60vh]"
+                />
+              ) : (
+                <div className="py-12 px-4 text-center">
+                  <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">Vorschau nicht verfügbar</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className="mt-4"
+                    onClick={() => previewDocument && handleDownloadDocument({
+                      fileName: previewDocument.name,
+                      fileType: previewDocument.type,
+                      fileSize: 0,
+                      uploadDate: '',
+                      dataUrl: previewDocument.url
+                    })}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Herunterladen
+                  </Button>
+                </div>
+              )
+            )}
+          </div>
+          <div className="flex justify-between mt-4">
+            <Button variant="outline" onClick={closePreview}>
+              Schließen
+            </Button>
+            {previewDocument && (
+              <Button 
+                variant="default"
+                onClick={() => previewDocument && handleDownloadDocument({
+                  fileName: previewDocument.name,
+                  fileType: previewDocument.type,
+                  fileSize: 0,
+                  uploadDate: '',
+                  dataUrl: previewDocument.url
+                })}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Herunterladen
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
